@@ -1,5 +1,5 @@
 #!/bin/sh
-# Safety net: if Pods were not integrated (skipped post-clone, cache, or flaky run), install now.
+# Standalone mobile repo: подстраховка перед xcodebuild.
 set -eu
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -8,14 +8,9 @@ export COCOAPODS_DISABLE_STATS=true
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-MOBILE_DIR="$REPO_ROOT/mobile"
-IOS_DIR="$MOBILE_DIR/ios"
+MOBILE_DIR="$REPO_ROOT"
+IOS_DIR="$REPO_ROOT/ios"
 PODS_XCCONFIG="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile/Pods-AltonMobile.release.xcconfig"
-
-if [ -f "$REPO_ROOT/.gitmodules" ] && [ ! -d "$IOS_DIR" ]; then
-  echo "==> Submodules: attempting init before Pod check..."
-  git -C "$REPO_ROOT" submodule update --init --recursive
-fi
 
 if [ -f "$PODS_XCCONFIG" ]; then
   echo "==> ci_pre_xcodebuild: Pods already present"

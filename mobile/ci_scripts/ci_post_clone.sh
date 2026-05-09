@@ -1,6 +1,6 @@
 #!/bin/sh
-# Xcode Cloud (монорепозиторий): JS deps + CocoaPods. Подтягивает submodule mobile при наличии .gitmodules.
-# Workspace: ios/AltonMobile.xcworkspace (symlink → mobile/ios).
+# Xcode Cloud when this folder is the Git repo root (отдельный mobile-репозиторий).
+# Workspace в workflow: ios/AltonMobile.xcworkspace
 set -eu
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -8,18 +8,13 @@ export HOMEBREW_NO_ANALYTICS=1
 export COCOAPODS_DISABLE_STATS=true
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
-# Prefer Apple env; fallback: parent of ci_scripts = repo root (works if var is missing/wrong).
+# Репозиторий = родитель ci_scripts (корень mobile-проекта).
 REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-MOBILE_DIR="$REPO_ROOT/mobile"
-IOS_DIR="$MOBILE_DIR/ios"
+MOBILE_DIR="$REPO_ROOT"
+IOS_DIR="$REPO_ROOT/ios"
 PODS_XCCONFIG="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile/Pods-AltonMobile.release.xcconfig"
 
-echo "==> ci_post_clone: REPO_ROOT=$REPO_ROOT"
-
-if [ -f "$REPO_ROOT/.gitmodules" ]; then
-  echo "==> Initializing git submodules (mobile как отдельный submodule)..."
-  git -C "$REPO_ROOT" submodule update --init --recursive
-fi
+echo "==> ci_post_clone (standalone mobile repo): REPO_ROOT=$REPO_ROOT"
 
 if [ ! -d "$IOS_DIR" ]; then
   echo "error: expected iOS project at $IOS_DIR" >&2
