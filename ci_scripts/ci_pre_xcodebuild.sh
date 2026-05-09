@@ -1,31 +1,41 @@
 #!/bin/sh
-# Safety net: if Pods were not integrated (skipped post-clone, cache, or flaky run), install now.
+# Safety net: Pods (Debug + Release) перед xcodebuild.
 set -eu
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export HOMEBREW_NO_ANALYTICS=1
 export COCOAPODS_DISABLE_STATS=true
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export GIT_TERMINAL_PROMPT=0
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MOBILE_DIR="$REPO_ROOT/mobile"
 IOS_DIR="$MOBILE_DIR/ios"
-PODS_XCCONFIG="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile/Pods-AltonMobile.release.xcconfig"
+PODS_SUPPORT="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile"
+DEBUG_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.debug.xcconfig"
+RELEASE_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.release.xcconfig"
+DEBUG_FRAMEWORKS_LIST="$PODS_SUPPORT/Pods-AltonMobile-frameworks-Debug-input-files.xcfilelist"
 
-if [ -f "$REPO_ROOT/.gitmodules" ] && [ ! -d "$IOS_DIR" ]; then
+if [ -f "$REPO_ROOT/.gitmodules" ] && [ ! -f "$IOS_DIR/Podfile" ]; then
   echo "==> Submodules: attempting init before Pod check..."
   git -C "$REPO_ROOT" submodule update --init --recursive
 fi
 
-if [ -f "$PODS_XCCONFIG" ]; then
-  echo "==> ci_pre_xcodebuild: Pods already present"
+pods_look_complete() {
+  [ -f "$DEBUG_XCCONFIG" ] && [ -f "$RELEASE_XCCONFIG" ] && [ -f "$DEBUG_FRAMEWORKS_LIST" ]
+}
+
+if pods_look_complete; then
+  echo "==> ci_pre_xcodebuild: Pods OK (debug+release + xcfilelists)"
   exit 0
 fi
 
-echo "==> ci_pre_xcodebuild: Pods missing, running install..."
+echo "==> ci_pre_xcodebuild: Pods incomplete or missing, running install..."
 
-if [ ! -d "$IOS_DIR" ]; then
-  echo "error: expected iOS project at $IOS_DIR" >&2
+if [ ! -f "$IOS_DIR/Podfile" ]; then
+  echo "error: Podfile not found at $IOS_DIR/Podfile" >&2
   exit 1
 fi
 
@@ -41,10 +51,13 @@ cd "$MOBILE_DIR"
 npm ci
 cd "$IOS_DIR"
 bundle install
-bundle exec pod install
+if ! bundle exec pod install; then
+  bundle exec pod install --verbose
+fi
 
-if [ ! -f "$PODS_XCCONFIG" ]; then
-  echo "error: pod install failed — still missing $PODS_XCCONFIG" >&2
+if ! pods_look_complete; then
+  echo "error: pod install failed — Pods still incomplete" >&2
+  ls -la "$PODS_SUPPORT" 2>&1 || true
   exit 1
 fi
 echo "==> ci_pre_xcodebuild OK"

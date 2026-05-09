@@ -6,18 +6,23 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export HOMEBREW_NO_ANALYTICS=1
 export COCOAPODS_DISABLE_STATS=true
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export GIT_TERMINAL_PROMPT=0
 
 SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
-# Репозиторий = родитель ci_scripts (корень mobile-проекта).
 REPO_ROOT="${CI_PRIMARY_REPOSITORY_PATH:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 MOBILE_DIR="$REPO_ROOT"
 IOS_DIR="$REPO_ROOT/ios"
-PODS_XCCONFIG="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile/Pods-AltonMobile.release.xcconfig"
+PODS_SUPPORT="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile"
+DEBUG_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.debug.xcconfig"
+RELEASE_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.release.xcconfig"
 
 echo "==> ci_post_clone (standalone mobile repo): REPO_ROOT=$REPO_ROOT"
+echo "==> CI_PRIMARY_REPOSITORY_PATH=${CI_PRIMARY_REPOSITORY_PATH:-<unset>}"
 
-if [ ! -d "$IOS_DIR" ]; then
-  echo "error: expected iOS project at $IOS_DIR" >&2
+if [ ! -f "$IOS_DIR/Podfile" ]; then
+  echo "error: Podfile not found at $IOS_DIR/Podfile" >&2
   exit 1
 fi
 
@@ -42,12 +47,17 @@ cd "$IOS_DIR"
 echo "==> bundle install in $IOS_DIR"
 bundle install
 echo "==> pod install in $IOS_DIR"
-bundle exec pod install
+if ! bundle exec pod install; then
+  echo "==> pod install failed, retry with --verbose"
+  bundle exec pod install --verbose
+fi
 
-if [ ! -f "$PODS_XCCONFIG" ]; then
-  echo "error: pod install did not produce $PODS_XCCONFIG" >&2
-  ls -la "$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile" 2>&1 || true
+if [ ! -f "$DEBUG_XCCONFIG" ] || [ ! -f "$RELEASE_XCCONFIG" ]; then
+  echo "error: pod install did not produce Debug/Release xcconfigs" >&2
+  echo "  expected: $DEBUG_XCCONFIG" >&2
+  echo "  expected: $RELEASE_XCCONFIG" >&2
+  ls -la "$PODS_SUPPORT" 2>&1 || ls -la "$IOS_DIR/Pods" 2>&1 || true
   exit 1
 fi
 
-echo "==> ci_post_clone OK (Pods present)"
+echo "==> ci_post_clone OK (Pods debug+release present)"
