@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# CocoaPods + Ruby 3.2+: старый activesupport падает с NameError на Logger
+gem "cocoapods", "~> 1.16"
+gem "activesupport", ">= 7.1.0"

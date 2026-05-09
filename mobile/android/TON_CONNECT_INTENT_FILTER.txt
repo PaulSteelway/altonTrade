@@ -1,0 +1,12 @@
+TON Connect deep link (when you add the Android project):
+
+Add inside the main activity with android:exported="true":
+
+<intent-filter>
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="alton" android:host="tonconnect" />
+</intent-filter>
+
+Match returnUrl in hosted tonconnect-manifest.json to alton://tonconnect (see mobile/src/tonconnect/deeplink.ts).
