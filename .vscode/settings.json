@@ -1,4 +1,6 @@
 {
+    "git.autoRepositoryDetection": "subFolders",
+    "git.repositoryScanMaxDepth": 4,
     "cSpell.words": [
         "adminjs",
         "adsgram",
