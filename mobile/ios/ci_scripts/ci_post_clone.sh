@@ -1,34 +1,34 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# ci_post_clone.sh — Xcode Cloud: подготовка React Native (Node, Yarn, зависимости JS, CocoaPods).
+# ci_post_clone.sh — Xcode Cloud: Node, npm ci, CocoaPods (React Native).
+# Отдельный репозиторий mobile: корень клона = корень RN (package.json в корне).
 #
-# Расположение: каталог ci_scripts рядом с *.xcworkspace / *.xcodeproj.
-# В этом репозитории: mobile/ios/ci_scripts (в корне клона также доступно как ios/ci_scripts
-# при симлинке ios → mobile/ios).
+# Образ Xcode Cloud часто без Homebrew; Yarn/Corepack могут отсутствовать → exit 127.
+# Используем npm ci (есть package-lock.json) и при необходимости ставим Node с nodejs.org.
 #
-# Документация Apple: кастомные скрипты Xcode Cloud ищутся начиная с папки workspace
-# и поднимаются к корню репозитория; первый найденный ci_scripts используется для этапа.
+# Документация Apple: ci_scripts ищется от каталога workspace вверх до корня репозитория.
 #
 
 set -euo pipefail
 
-# --- Окружение CI (стабильный PATH, UTF-8 для CocoaPods/Ruby, без интерактива) ---
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
 export COCOAPODS_DISABLE_STATS=true
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export GIT_TERMINAL_PROMPT=0
+export NPM_CONFIG_FETCH_TIMEOUT="${NPM_CONFIG_FETCH_TIMEOUT:-600000}"
+
+# Версия официального бинарника Node (darwin), если нет brew. См. package.json → engines.node
+CI_NODE_VERSION="${CI_NODE_VERSION:-20.18.1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Каталог iOS-проекта (Podfile, *.xcworkspace) — родитель ci_scripts
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Корень клона репозитория: в Xcode Cloud задаётся автоматически
 if [[ -n "${CI_PRIMARY_REPOSITORY_PATH:-}" ]]; then
   REPO_ROOT="$CI_PRIMARY_REPOSITORY_PATH"
 else
-  # Локальный запуск: корень git от каталога ios
   REPO_ROOT="$(git -C "$IOS_DIR" rev-parse --show-toplevel)"
 fi
 
@@ -36,13 +36,11 @@ echo "==> ci_post_clone: REPO_ROOT=$REPO_ROOT"
 echo "==> ci_post_clone: IOS_DIR=$IOS_DIR"
 echo "==> CI_PRIMARY_REPOSITORY_PATH=${CI_PRIMARY_REPOSITORY_PATH:-<unset>}"
 
-# --- Подмодули (если mobile или другие части подключены как submodule) ---
 if [[ -f "$REPO_ROOT/.gitmodules" ]]; then
   echo "==> Initializing git submodules..."
   git -C "$REPO_ROOT" submodule update --init --recursive
 fi
 
-# --- Где лежит React Native package.json: монорепозиторий vs отдельный mobile-репозиторий ---
 if [[ -f "$REPO_ROOT/mobile/package.json" ]]; then
   MOBILE_DIR="$REPO_ROOT/mobile"
 elif [[ -f "$REPO_ROOT/package.json" ]]; then
@@ -57,27 +55,52 @@ if [[ ! -f "$IOS_DIR/Podfile" ]]; then
   exit 1
 fi
 
-# --- Node.js (нужен для react-native/scripts в Podfile и для фаз сборки Xcode) ---
-if ! command -v node >/dev/null 2>&1; then
-  echo "==> Устанавливаем Node.js через Homebrew..."
-  brew install node
-fi
+install_node_from_nodejs_org() {
+  local arch
+  case "$(uname -m)" in
+    arm64) arch=arm64 ;;
+    x86_64) arch=x64 ;;
+    *) echo "error: неподдерживаемая архитектура: $(uname -m)" >&2; exit 1 ;;
+  esac
+  local name="node-v${CI_NODE_VERSION}-darwin-${arch}"
+  local url="https://nodejs.org/dist/v${CI_NODE_VERSION}/${name}.tar.gz"
+  local root="${TMPDIR:-/tmp}/ci-node-${CI_NODE_VERSION}-$$"
+  mkdir -p "$root"
+  echo "==> Скачиваем Node.js v${CI_NODE_VERSION} (darwin-${arch}) с nodejs.org (Homebrew недоступен)..."
+  curl -fsSL "$url" -o "$root/node.tgz"
+  tar -xzf "$root/node.tgz" -C "$root"
+  export PATH="$root/${name}/bin:$PATH"
+  hash -r
+}
+
+ensure_node() {
+  if command -v node >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    echo "==> Устанавливаем Node.js через Homebrew..."
+    brew install node
+    hash -r
+    return 0
+  fi
+  install_node_from_nodejs_org
+}
+
+ensure_node
 node --version
+command -v npm >/dev/null 2>&1 || {
+  echo "error: npm не найден после установки Node.js" >&2
+  exit 1
+}
 
-# --- Yarn (по требованию CI; в репозитории также есть package-lock.json — yarn подхватит package.json) ---
-if ! command -v yarn >/dev/null 2>&1; then
-  echo "==> Включаем Corepack и активируем Yarn Classic (стабильно для RN)..."
-  corepack enable
-  corepack prepare yarn@1.22.22 --activate
-fi
-yarn --version
-
-# --- JS-зависимости React Native ---
 cd "$MOBILE_DIR"
-echo "==> yarn install в $MOBILE_DIR"
-yarn install --network-timeout 600000
+if [[ ! -f "$MOBILE_DIR/package-lock.json" ]]; then
+  echo "error: для npm ci нужен package-lock.json: $MOBILE_DIR/package-lock.json" >&2
+  exit 1
+fi
+echo "==> npm ci в $MOBILE_DIR"
+npm ci --no-audit --no-fund
 
-# --- CocoaPods: версии из Gemfile / Gemfile.lock в ios ---
 if ! command -v bundle >/dev/null 2>&1; then
   echo "==> Устанавливаем Bundler..."
   gem install bundler --no-document 2>/dev/null || gem install bundler --user-install --no-document
@@ -95,12 +118,10 @@ if ! bundle exec pod install; then
   bundle exec pod install --verbose
 fi
 
-# --- Явный NODE_BINARY для Run Script фаз Xcode (файл в .gitignore) ---
 NODE_BIN="$(command -v node)"
 echo "export NODE_BINARY=${NODE_BIN}" >"$IOS_DIR/.xcode.env.local"
 echo "==> записан .xcode.env.local с NODE_BINARY=$NODE_BIN"
 
-# --- Проверка: после pod install должны существовать xcconfig и file lists (иначе Xcode ругается на отсутствующие *.xcfilelist) ---
 PODS_SUPPORT="$IOS_DIR/Pods/Target Support Files/Pods-AltonMobile"
 RELEASE_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.release.xcconfig"
 DEBUG_XCCONFIG="$PODS_SUPPORT/Pods-AltonMobile.debug.xcconfig"

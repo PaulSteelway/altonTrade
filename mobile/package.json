@@ -2,6 +2,10 @@
   "name": "AltonMobile",
   "version": "0.0.1",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PaulSteelway/mobile.git"
+  },
   "scripts": {
     "android": "react-native run-android",
     "ios:pods": "cd ios && bundle install && bundle exec pod install",
